@@ -6,6 +6,7 @@ while [[ $# -gt 0 ]]; do
         --backend) BACKEND=$2; shift 2 ;;
         --model) MODEL=$2; shift 2 ;;
         --tp) TP=$2; shift 2 ;;
+        --config) CONFIG=$2; shift 2 ;;
         --max-model-len) MAX_MODEL_LEN=$2; shift 2 ;;
         *) echo "ERROR: Unknown argument $1" ; exit 1 ;;
     esac
@@ -17,14 +18,15 @@ BACKEND="${BACKEND:-vllm}"
 MODEL="${MODEL:-amd/Llama-3.1-70B-Instruct-FP8-KV}"
 TP="${TP:-8}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-2048}"
+CONFIG="${CONFIG:-default}"
 
 # Environment and launch command for serving the model
 if [[ $BACKEND == "vllm" ]]; then
-    # LAUNCH_ENV="VLLM_V1_USE_PREFILL_DECODE_ATTENTION=1 VLLM_ROCM_USE_AITER=1 VLLM_ROCM_USE_AITER_RMSNORM=0"
-    LAUNCH_ENV="VLLM_ROCM_USE_AITER=0 VLLM_ROCM_USE_AITER_MHA=0 VLLM_ROCM_USE_AITER_RMSNORM=0"
-    #LAUNCH_ENV=""
+    [[ "$CONFIG" == "default" ]] && LAUNCH_ENV=""
+    [[ "$CONFIG" == "aiter" ]] && LAUNCH_ENV="VLLM_ROCM_USE_AITER=1 VLLM_ROCM_USE_AITER_RMSNORM=0 VLLM_V1_USE_PREFILL_DECODE_ATTENTION=1"
+    [[ "$CONFIG" == "noaiter" ]] && LAUNCH_ENV="VLLM_ROCM_USE_AITER=0 VLLM_ROCM_USE_AITER_MHA=0 VLLM_ROCM_USE_AITER_RMSNORM=0"
     LAUNCH_CMD="$LAUNCH_ENV python3 -m vllm.entrypoints.openai.api_server \
-        --model ${MODEL}
+        --model ${MODEL} \
         --disable-log-stats \
         --disable-log-requests \
         --tensor-parallel-size ${TP} \
@@ -36,13 +38,13 @@ if [[ $BACKEND == "vllm" ]]; then
         #--max-num-batched-tokens 512 \
 elif [[ $BACKEND == "sglang" ]]; then
     LAUNCH_CMD="$LAUNCH_ENV python3 -m sglang.launch_server \
-        --model ${MODEL}
+        --model ${MODEL} \
         --port ${PORT:-8000} \
         --trust-remote-code \
         --log-level-http warning \
         --enable-torch-compile \
         "
-        # --torch-compile-max-bs $MAX_BATCH_SIZE \
+        #--torch-compile-max-bs $MAX_BATCH_SIZE \
         #--chunked-prefill-size $MAX_BATCHED_TOKENS \
 else
     echo "ERROR: Unknown backend $BACKEND"

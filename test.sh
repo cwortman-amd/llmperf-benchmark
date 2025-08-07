@@ -13,12 +13,16 @@ MODEL=${MODEL:-"amd/Llama-3.1-70B-Instruct-FP8-KV"}
 BACKEND=${BACKEND:-"vllm"}
 IMAGE=${IMAGE:-"rocm/vllm:latest"}
 ITERATIONS=${ITERATIONS:-"3"}
+TP=${TP:-"8"}
+MAX_MODEL_LEN=${MAX_MODEL_LEN:-"2048"}
+CONFIG=${CONFIG:-"default"}
 
 declare -A testcase
-testcase[noaiter_new]="MODEL: $MODEL; BACKEND: $BACKEND; IMAGE: $IMAGE; ITERATIONS: $ITERATIONS"
+testcase[default]="MODEL: $MODEL; BACKEND: $BACKEND; IMAGE: $IMAGE; ITERATIONS: $ITERATIONS; TP: $TP; MAX_MODEL_LEN: $MAX_MODEL_LEN; CONFIG: default"
+testcase[aiter]="MODEL: $MODEL; BACKEND: $BACKEND; IMAGE: $IMAGE; ITERATIONS: $ITERATIONS; TP: $TP; MAX_MODEL_LEN: $MAX_MODEL_LEN; CONFIG: aiter"
+testcase[noaiter]="MODEL: $MODEL; BACKEND: $BACKEND; IMAGE: $IMAGE; ITERATIONS: $ITERATIONS; TP: $TP; MAX_MODEL_LEN: $MAX_MODEL_LEN; CONFIG: noaiter"
 
 TESTCASES=("${!testcase[@]}")  # Dynamically generate TESTCASES list
-
 
 export OPENAI_API_KEY=secret_abcdefg
 export OPENAI_API_BASE="http://localhost:8000/v1/"
@@ -35,12 +39,14 @@ TEST_LOG=$LOG_DIR/test.${DATETIME}.log
 # Run tests
 run_tests() {
   echo "INFO: Starting backend: $BACKEND with model: $MODEL"
-  ./start.sh --backend $BACKEND --model $MODEL --image $IMAGE --tp 8 --max-model-len 2048
+  START_CMD="./start.sh --backend $BACKEND --model $MODEL --image $IMAGE --tp $TP --max-model-len $MAX_MODEL_LEN --config $TESTCASE"
+  echo "INFO: $START_CMD"
+  eval "$START_CMD"
   cd $RUN_DIR
   for ITERATION in $(seq 1 $ITERATIONS); do
     echo "Running benchmark for model: $MODEL, run number: $ITERATION"
-    #for CONCURRENCY in 1 2 4 8 16 32 64 128 256 ; do
-    for CONCURRENCY in 8 16 32 ; do
+    for CONCURRENCY in 1 2 4 8 16 32 64 128 256 ; do
+    #for CONCURRENCY in 8 16 32 ; do
       for INPUT in 1000; do
         for OUTPUT in 500; do
           LOG_DIR="$RESULTS_DIR/${PROJECT}-${BACKEND}-${MODEL//\//--}-c${CONCURRENCY}-i${INPUT}-o${OUTPUT}-r${ITERATION}-${TESTCASE}"
@@ -65,17 +71,17 @@ run_tests() {
 
 # Main execution loop to handle arguments and run tests
 {
-  RUN_TESTCASE="default" # Default test case
+  TESTCASE="default" # Default test case
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      -t|--testcase) RUN_TESTCASE="$2"; shift 2 ;;
-      -a|--all) RUN_TESTCASE="all"; shift ;;
+      -t|--testcase) TESTCASE="$2"; shift 2 ;;
+      -a|--all) TESTCASE="all"; shift ;;
       *) echo "ERROR: Unknown option '$1'. Valid options are -t|--testcase <name> or -a|--all."; exit 1 ;;
     esac
   done
 
-  if [[ "$RUN_TESTCASE" == "all" ]]; then
+  if [[ "$TESTCASE" == "all" ]]; then
     echo "INFO: Running all test cases."
     for t in "${TESTCASES[@]}"; do
       echo "INFO: Testcase '$t'"
@@ -84,11 +90,11 @@ run_tests() {
         run_tests "$t"
       done
     done
-  elif [[ " ${TESTCASES[*]} " =~ " $RUN_TESTCASE " ]]; then
-    echo "INFO: Running specified test case '$RUN_TESTCASE'."
-    run_tests "$RUN_TESTCASE"
+  elif [[ " ${TESTCASES[*]} " =~ " $TESTCASE " ]]; then
+    echo "INFO: Running specified test case '$TESTCASE'."
+    run_tests "$TESTCASE"
   else
-    echo "ERROR: Unknown test case '$RUN_TESTCASE'. Valid options are ${TESTCASES[*]} or 'all'."
+    echo "ERROR: Unknown test case '$TESTCASE'. Valid options are ${TESTCASES[*]} or 'all'."
     exit 1
   fi
   docker rm -f $(docker ps -aq --filter "name=$BACKEND") || true
