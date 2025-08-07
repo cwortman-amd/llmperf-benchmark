@@ -2,3 +2,4 @@
 llmperf
 results
 launch.sh
+*.log
