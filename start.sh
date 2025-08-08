@@ -23,15 +23,19 @@ CONFIG="${CONFIG:-default}"
 # Environment and launch command for serving the model
 if [[ $BACKEND == "vllm" ]]; then
     [[ "$CONFIG" == "default" ]] && LAUNCH_ENV=""
-    [[ "$CONFIG" == "aiter" ]] && LAUNCH_ENV="VLLM_ROCM_USE_AITER=1 VLLM_ROCM_USE_AITER_RMSNORM=0 VLLM_V1_USE_PREFILL_DECODE_ATTENTION=1"
-    [[ "$CONFIG" == "noaiter" ]] && LAUNCH_ENV="VLLM_ROCM_USE_AITER=0 VLLM_ROCM_USE_AITER_MHA=0 VLLM_ROCM_USE_AITER_RMSNORM=0"
+    [[ "$CONFIG" == "pda" ]] && LAUNCH_ENV="VLLM_USE_V1=1 VLLM_V1_USE_PREFILL_DECODE_ATTENTION=1"
+    [[ "$CONFIG" == "aiter" ]] && LAUNCH_ENV="VLLM_USE_V1=1 VLLM_V1_USE_PREFILL_DECODE_ATTENTION=1 VLLM_ROCM_USE_AITER=1"
+    [[ "$CONFIG" == "noaiter" ]] && LAUNCH_ENV="VLLM_USE_V1=1 VLLM_V1_USE_PREFILL_DECODE_ATTENTION=1 VLLM_ROCM_USE_AITER=0 VLLM_ROCM_USE_AITER_MHA=0 VLLM_ROCM_USE_AITER_RMSNORM=0"
+    [[ "$CONFIG" == "noaiter_nopda" ]] && LAUNCH_ENV="VLLM_USE_V1=1 VLLM_V1_USE_PREFILL_DECODE_ATTENTION=0 VLLM_ROCM_USE_AITER=0 VLLM_ROCM_USE_AITER_MHA=0 VLLM_ROCM_USE_AITER_RMSNORM=0"
     LAUNCH_CMD="$LAUNCH_ENV python3 -m vllm.entrypoints.openai.api_server \
         --model ${MODEL} \
         --disable-log-stats \
         --disable-log-requests \
         --tensor-parallel-size ${TP} \
         --max-model-len ${MAX_MODEL_LEN} \
+        --gpu-memory-utilization 0.416 \
         "
+        #--kv-cache-dtype fp8 \
         #--quantization fp8 \
         #--kv-cache-dtype fp8 \
         #--dtype auto \
@@ -105,7 +109,7 @@ launch_container() {
 
     # Print info
     echo "INFO: Launching container '${CONTAINER_NAME}' using image '${IMAGE}' with model '${MODEL}' ..."
-    echo "INFO: Running - ${LAUNCH_CMD}"
+    echo "INFO: ${LAUNCH_CMD}"
     echo "${DOCKER_CMD}"
 
     # Run the Docker container

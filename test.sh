@@ -9,18 +9,13 @@ if [[ ! $VIRTUAL_ENV =~ $VENV ]]; then
   . $VENV/bin/activate
 fi
 
-MODEL=${MODEL:-"amd/Llama-3.1-70B-Instruct-FP8-KV"}
-BACKEND=${BACKEND:-"vllm"}
-IMAGE=${IMAGE:-"rocm/vllm:latest"}
-ITERATIONS=${ITERATIONS:-"3"}
-TP=${TP:-"8"}
-MAX_MODEL_LEN=${MAX_MODEL_LEN:-"2048"}
-CONFIG=${CONFIG:-"default"}
-
 declare -A testcase
-testcase[default]="MODEL: $MODEL; BACKEND: $BACKEND; IMAGE: $IMAGE; ITERATIONS: $ITERATIONS; TP: $TP; MAX_MODEL_LEN: $MAX_MODEL_LEN; CONFIG: default"
-testcase[aiter]="MODEL: $MODEL; BACKEND: $BACKEND; IMAGE: $IMAGE; ITERATIONS: $ITERATIONS; TP: $TP; MAX_MODEL_LEN: $MAX_MODEL_LEN; CONFIG: aiter"
-testcase[noaiter]="MODEL: $MODEL; BACKEND: $BACKEND; IMAGE: $IMAGE; ITERATIONS: $ITERATIONS; TP: $TP; MAX_MODEL_LEN: $MAX_MODEL_LEN; CONFIG: noaiter"
+testcase[default]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:latest; TP: 8"
+testcase[aiter]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.9.1_20250715; TP: 8"
+testcase[noaiter]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.9.1_20250715; TP: 8"
+testcase[noaiter_nopda]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.9.1_20250715; TP: 8"
+testcase[pda]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.9.1_20250715; TP: 8"
+testcase[sglang]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: sglang; IMAGE: lmsysorg/sglang:v0.4.10.post2-rocm630-mi30x:latest; TP: 8"
 
 TESTCASES=("${!testcase[@]}")  # Dynamically generate TESTCASES list
 
@@ -36,32 +31,58 @@ mkdir -p "$LOG_DIR"
 
 DATETIME=$(date +'%Y%m%d-%H%M%S')
 TEST_LOG=$LOG_DIR/test.${DATETIME}.log
+
 # Run tests
 run_tests() {
-  echo "INFO: Starting backend: $BACKEND with model: $MODEL"
-  START_CMD="./start.sh --backend $BACKEND --model $MODEL --image $IMAGE --tp $TP --max-model-len $MAX_MODEL_LEN --config $TESTCASE"
-  echo "INFO: $START_CMD"
-  eval "$START_CMD"
-  cd $RUN_DIR
-  for ITERATION in $(seq 1 $ITERATIONS); do
-    echo "Running benchmark for model: $MODEL, run number: $ITERATION"
-    for CONCURRENCY in 1 2 4 8 16 32 64 128 256 ; do
-    #for CONCURRENCY in 8 16 32 ; do
-      for INPUT in 1000; do
-        for OUTPUT in 500; do
-          LOG_DIR="$RESULTS_DIR/${PROJECT}-${BACKEND}-${MODEL//\//--}-c${CONCURRENCY}-i${INPUT}-o${OUTPUT}-r${ITERATION}-${TESTCASE}"
-          python token_benchmark_ray.py \
-            --model $MODEL \
-            --mean-input-tokens $INPUT \
-            --stddev-input-tokens 150 \
-            --mean-output-tokens $OUTPUT \
-            --stddev-output-tokens 10 \
-            --max-num-completed-requests $((10*CONCURRENCY+50)) \
-            --timeout 600 \
-            --num-concurrent-requests $CONCURRENCY \
-            --results-dir $LOG_DIR \
-            --llm-api "openai" \
-            --additional-sampling-params '{}'
+  local t=$1
+  IFS=';' read -ra pairs <<< "${testcase[$t]}"
+  declare -A params
+  for pair in "${pairs[@]}"; do
+    IFS=':' read -r key value <<< "$pair"
+    echo "params[$key]=$value"
+    params[$key]=$value
+  done
+
+  BACKEND_LIST=${params[BACKEND]:-"vllm"}
+  IMAGE_LIST=${params[IMAGE]:-"rocm/vllm:latest"}
+  MODEL_LIST=${params[MODEL]:-"amd/Llama-3.1-70B-Instruct-FP8-KV"}
+  TP_LIST=${params[TP]:-"8"}
+
+  ITERATIONS=${ITERATIONS:-"3"}
+  CONFIG=${TESTCASE}
+
+  for BACKEND in $BACKEND_LIST; do
+    for IMAGE in $IMAGE_LIST; do
+      for MODEL in $MODEL_LIST; do
+        for TP in $TP_LIST; do
+          echo "INFO: Starting backend: $BACKEND with model: $MODEL and tensor parallelism: $TP using image: $IMAGE and config: $CONFIG"
+          START_CMD="./start.sh --backend $BACKEND --model $MODEL --image $IMAGE --tp $TP --config $CONFIG"
+          echo "INFO: $START_CMD"
+          eval "$START_CMD"
+          for CONCURRENCY in 1 2 4 8 16 32 64 128 256 ; do
+          #for CONCURRENCY in 8 16 32 ; do
+            for INPUT in 1000; do
+              for OUTPUT in 500; do
+                for ITERATION in $(seq 1 $ITERATIONS); do
+                  echo "INFO: Running benchmark for model: $MODEL, run number: $ITERATION"
+                  LOG_DIR="$RESULTS_DIR/${PROJECT}-${BACKEND}-${MODEL//\//--}-c${CONCURRENCY}-i${INPUT}-o${OUTPUT}-r${ITERATION}-${TESTCASE}"
+                  cd $RUN_DIR
+                  python token_benchmark_ray.py \
+                    --model $MODEL \
+                    --mean-input-tokens $INPUT \
+                    --stddev-input-tokens 150 \
+                    --mean-output-tokens $OUTPUT \
+                    --stddev-output-tokens 10 \
+                    --max-num-completed-requests $((10*CONCURRENCY+50)) \
+                    --timeout 600 \
+                    --num-concurrent-requests $CONCURRENCY \
+                    --results-dir $LOG_DIR \
+                    --llm-api "openai" \
+                    --additional-sampling-params '{}'
+                done
+              done
+            done
+          done
         done
       done
     done
