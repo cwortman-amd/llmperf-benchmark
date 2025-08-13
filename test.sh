@@ -9,13 +9,18 @@ if [[ ! $VIRTUAL_ENV =~ $VENV ]]; then
   . $VENV/bin/activate
 fi
 
+# --- Test case definitions ---
 declare -A testcase
 testcase[default]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:latest; TP: 8"
+testcase[default_8b]="MODEL: amd/Llama-3.1-B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:latest; TP: 8"
 testcase[aiter]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.9.1_20250715; TP: 8"
 testcase[noaiter]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.9.1_20250715; TP: 8"
 testcase[noaiter_nopda]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.9.1_20250715; TP: 8"
 testcase[pda]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.9.1_20250715; TP: 8"
-testcase[sglang]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: sglang; IMAGE: lmsysorg/sglang:v0.4.10.post2-rocm630-mi30x:latest; TP: 8"
+testcase[pda_fp8]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.9.1_20250715; TP: 8"
+testcase[pda_pto]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.9.1_20250715; TP: 8"
+testcase[sglang]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: sglang; IMAGE: lmsysorg/sglang:v0.4.10.post2-rocm630-mi30x; TP: 8"
+testcase[pda_8b]="MODEL: amd/Llama-3.1-8B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.9.1_20250715; TP: 8"
 
 TESTCASES=("${!testcase[@]}")  # Dynamically generate TESTCASES list
 
@@ -39,6 +44,7 @@ run_tests() {
   declare -A params
   for pair in "${pairs[@]}"; do
     IFS=':' read -r key value <<< "$pair"
+    key="${key# }"  # Remove leading space
     echo "params[$key]=$value"
     params[$key]=$value
   done
@@ -118,7 +124,9 @@ run_tests() {
     echo "ERROR: Unknown test case '$TESTCASE'. Valid options are ${TESTCASES[*]} or 'all'."
     exit 1
   fi
-  docker rm -f $(docker ps -aq --filter "name=$BACKEND") || true
+  for BACKEND in vllm sglang; do
+    docker rm -f $(docker ps -aq --filter "name=$BACKEND") 2>/dev/null || true
+  done
 
 } |& tee $TEST_LOG
 

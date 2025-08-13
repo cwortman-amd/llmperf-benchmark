@@ -8,6 +8,7 @@ while [[ $# -gt 0 ]]; do
         --tp) TP=$2; shift 2 ;;
         --config) CONFIG=$2; shift 2 ;;
         --max-model-len) MAX_MODEL_LEN=$2; shift 2 ;;
+        --profile) PROFILE=1; shift 1 ;;
         *) echo "ERROR: Unknown argument $1" ; exit 1 ;;
     esac
 done
@@ -22,9 +23,13 @@ CONFIG="${CONFIG:-default}"
 
 # Environment and launch command for serving the model
 if [[ $BACKEND == "vllm" ]]; then
+    [[ -z "$PROFIle" ]] &&
     [[ "$CONFIG" == "default" ]] && LAUNCH_ENV=""
     [[ "$CONFIG" == "pda" ]] && LAUNCH_ENV="VLLM_USE_V1=1 VLLM_V1_USE_PREFILL_DECODE_ATTENTION=1"
-    [[ "$CONFIG" == "aiter" ]] && LAUNCH_ENV="VLLM_USE_V1=1 VLLM_V1_USE_PREFILL_DECODE_ATTENTION=1 VLLM_ROCM_USE_AITER=1"
+    [[ "$CONFIG" == "pda_8b" ]] && LAUNCH_ENV="VLLM_USE_V1=1 VLLM_V1_USE_PREFILL_DECODE_ATTENTION=1"
+    [[ "$CONFIG" == "pda_fp8" ]] && LAUNCH_ENV="VLLM_USE_V1=1 VLLM_V1_USE_PREFILL_DECODE_ATTENTION=1"
+    [[ "$CONFIG" == "pda_pto" ]] && LAUNCH_ENV="VLLM_USE_V1=1 VLLM_V1_USE_PREFILL_DECODE_ATTENTION=1 PYTORCH_TUNABLEOP_ENABLED=1"
+    [[ "$CONFIG" == "aiter" ]] && LAUNCH_ENV="VLLM_USE_V1=1 VLLM_ROCM_USE_AITER=1"
     [[ "$CONFIG" == "noaiter" ]] && LAUNCH_ENV="VLLM_USE_V1=1 VLLM_V1_USE_PREFILL_DECODE_ATTENTION=1 VLLM_ROCM_USE_AITER=0 VLLM_ROCM_USE_AITER_MHA=0 VLLM_ROCM_USE_AITER_RMSNORM=0"
     [[ "$CONFIG" == "noaiter_nopda" ]] && LAUNCH_ENV="VLLM_USE_V1=1 VLLM_V1_USE_PREFILL_DECODE_ATTENTION=0 VLLM_ROCM_USE_AITER=0 VLLM_ROCM_USE_AITER_MHA=0 VLLM_ROCM_USE_AITER_RMSNORM=0"
     LAUNCH_CMD="$LAUNCH_ENV python3 -m vllm.entrypoints.openai.api_server \
@@ -35,10 +40,7 @@ if [[ $BACKEND == "vllm" ]]; then
         --max-model-len ${MAX_MODEL_LEN} \
         --gpu-memory-utilization 0.416 \
         "
-        #--kv-cache-dtype fp8 \
-        #--quantization fp8 \
-        #--kv-cache-dtype fp8 \
-        #--dtype auto \
+    [[ "$CONFIG" == *fp8* ]] && LAUNCH_CMD+=" --kv-cache-dtype fp8 --quantization fp8 --dtype bfloat16 "
         #--max-num-batched-tokens 512 \
 elif [[ $BACKEND == "sglang" ]]; then
     LAUNCH_CMD="$LAUNCH_ENV python3 -m sglang.launch_server \
