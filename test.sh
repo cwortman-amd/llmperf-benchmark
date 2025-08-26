@@ -11,16 +11,17 @@ fi
 
 # --- Test case definitions ---
 declare -A testcase
-testcase[default]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:latest; TP: 8"
-testcase[default_8b]="MODEL: amd/Llama-3.1-B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:latest; TP: 8"
-testcase[aiter]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.9.1_20250715; TP: 8"
-testcase[noaiter]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.9.1_20250715; TP: 8"
-testcase[noaiter_nopda]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.9.1_20250715; TP: 8"
-testcase[pda]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.9.1_20250715; TP: 8"
-testcase[pda_fp8]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.9.1_20250715; TP: 8"
-testcase[pda_pto]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.9.1_20250715; TP: 8"
+testcase[default]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:latest; TP: 8; CONCURRENCY: 1 2 4 8 16 32 64 128 256"
+testcase[default_8b]="MODEL: amd/Llama-3.1-B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.10.0_20250812; TP: 8"
+testcase[aiter]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.10.0_20250812; TP: 8"
+testcase[aiter_pda]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.10.0_20250812; TP: 8"
+testcase[noaiter_pda]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.10.0_20250812 TP: 8"
+testcase[noaiter_nopda]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.10.0_20250812; TP: 8"
+testcase[pda]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.10.0_20250812; TP: 8"
+testcase[pda_fp8]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.10.0_20250812; TP: 8"
+testcase[pda_pto]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.10.0_20250812; TP: 8"
 testcase[sglang]="MODEL: amd/Llama-3.1-70B-Instruct-FP8-KV; BACKEND: sglang; IMAGE: lmsysorg/sglang:v0.4.10.post2-rocm630-mi30x; TP: 8"
-testcase[pda_8b]="MODEL: amd/Llama-3.1-8B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.9.1_20250715; TP: 8"
+testcase[pda_8b]="MODEL: amd/Llama-3.1-8B-Instruct-FP8-KV; BACKEND: vllm; IMAGE: rocm/vllm:rocm6.4.1_vllm_0.10.0_20250812; TP: 8"
 
 TESTCASES=("${!testcase[@]}")  # Dynamically generate TESTCASES list
 
@@ -53,6 +54,8 @@ run_tests() {
   IMAGE_LIST=${params[IMAGE]:-"rocm/vllm:latest"}
   MODEL_LIST=${params[MODEL]:-"amd/Llama-3.1-70B-Instruct-FP8-KV"}
   TP_LIST=${params[TP]:-"8"}
+  #CONCURRENCY_LIST=${params[CONCURRENCY]:-"64"}
+  CONCURRENCY_LIST=${params[CONCURRENCY]:-"1 2 4 8 16 32 64 128 256"}
 
   ITERATIONS=${ITERATIONS:-"3"}
   CONFIG=${TESTCASE}
@@ -65,15 +68,14 @@ run_tests() {
           START_CMD="./start.sh --backend $BACKEND --model $MODEL --image $IMAGE --tp $TP --config $CONFIG"
           echo "INFO: $START_CMD"
           eval "$START_CMD"
-          for CONCURRENCY in 1 2 4 8 16 32 64 128 256 ; do
-          #for CONCURRENCY in 8 16 32 ; do
+          for CONCURRENCY in $CONCURRENCY_LIST ; do
             for INPUT in 1000; do
               for OUTPUT in 500; do
                 for ITERATION in $(seq 1 $ITERATIONS); do
                   echo "INFO: Running benchmark for model: $MODEL, run number: $ITERATION"
-                  LOG_DIR="$RESULTS_DIR/${PROJECT}-${BACKEND}-${MODEL//\//--}-c${CONCURRENCY}-i${INPUT}-o${OUTPUT}-r${ITERATION}-${TESTCASE}"
+                  LOG_DIR="$RESULTS_DIR/${PROJECT}-${BACKEND}-${IMAGE//\//--}-${MODEL//\//--}-c${CONCURRENCY}-i${INPUT}-o${OUTPUT}-r${ITERATION}-${TESTCASE}"
                   cd $RUN_DIR
-                  python token_benchmark_ray.py \
+                  RUN_CMD="python token_benchmark_ray.py \
                     --model $MODEL \
                     --mean-input-tokens $INPUT \
                     --stddev-input-tokens 150 \
@@ -85,6 +87,9 @@ run_tests() {
                     --results-dir $LOG_DIR \
                     --llm-api "openai" \
                     --additional-sampling-params '{}'
+                  "
+                  echo "INFO:$RUN_CMD"
+                  eval "$RUN_CMD"
                 done
               done
             done

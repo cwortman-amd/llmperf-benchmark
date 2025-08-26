@@ -26,8 +26,8 @@ source $VENV/bin/activate
 export WORKSPACE=${WORKSPACE:-"$HOME/workspace"}
 export WORKDIR="$PWD"
 
-mkdir results
-ln -s json2csv.py results/json2csv.py
+mkdir -p results
+ln -s $PWD/json2csv.py results/json2csv.py
 
 echo "========================================"
 echo "Project Setup"
